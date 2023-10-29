@@ -1,6 +1,11 @@
+global using Microsoft.EntityFrameworkCore;
+using MinimalAPI;
 using static System.Reflection.Metadata.BlobBuilder;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDbContextPool<DataContext>
+    (op => op.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -18,30 +23,50 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var books = new List<Book> {
-new Book {Id=1,Title="C#",Author="Yazan"},
-new Book {Id=2,Title="C++",Author="Yazan"},
-new Book {Id=3,Title="Python",Author="Yazan"},
-new Book {Id=4,Title="Java",Author="Yazan"},
-};
 
-app.MapGet("/book", () => { return books; });
 
-app.MapGet("/book{id}", (int id) => { return books.FirstOrDefault(x => x.Id.Equals(id)); });
+app.MapGet("/book", async (DataContext dataContext) =>
+await dataContext.Books.ToListAsync());
 
-app.MapPost("/book", (Book book) => { books.Add(book); return books; });
+app.MapGet("/book{id}", async (DataContext dataContext, int id) =>
+await dataContext.Books.FindAsync(id) is Book book ? Results.Ok(book) : Results.NotFound("Not Found!"));
 
-app.MapPut("book/{id}", (Book book, int id) =>
+app.MapPost("/book", async (DataContext dataContext, Book book) =>
 {
-    Book requiredBook = books.FirstOrDefault(x => x.Id.Equals(id));
+    dataContext.Books.Add(book);
+    await dataContext.SaveChangesAsync();
+    return Results.Ok(await dataContext.Books.ToListAsync());
+});
+
+
+
+app.MapPut("book/{id}",async (DataContext dataContext, Book book, int id) =>
+{
+    Book? requiredBook = await dataContext.Books.FindAsync(id);
+
+    if (requiredBook is null)
+        return Results.NotFound("Not Found!");
 
     requiredBook.Title = book.Title;
     requiredBook.Author = book.Author;
 
-    return books;
+    await dataContext.SaveChangesAsync();
+
+    return Results.Ok(await dataContext.Books.ToListAsync());
 });
 
-app.MapDelete("/book{id}", (int id) => { var book = books.FirstOrDefault(x => x.Id.Equals(id)); books.Remove(book); return books; });
+app.MapDelete("/book{id}",async (DataContext dataContext, int id) => 
+{ 
+    var book = await dataContext.Books.FindAsync(id);
+
+    if (book is null)
+        return Results.NotFound("Not Found!");
+
+    dataContext.Books.Remove(book);
+    await dataContext.SaveChangesAsync();
+
+    return Results.Ok(await dataContext.Books.ToListAsync());
+});
 
 app.Run();
 
